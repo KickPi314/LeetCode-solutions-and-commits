@@ -5,17 +5,22 @@ on:
   schedule:
     - cron: "0 8 * * *"
 
+env:
+  # Opt in early so JavaScript actions run on Node.js 24.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Sync
-        uses: joshcai/leetcode-sync@v1.7
+        uses: joshcai/leetcode-sync@v1
         with:
           github-token: ${{ github.token }}
           leetcode-csrf-token: ${{ secrets.LEETCODE_CSRF_TOKEN }}
           leetcode-session: ${{ secrets.LEETCODE_SESSION }}
           destination-folder: my-folder
-          verbose: true
+          # Keep verbose mode off to avoid submissionList shape mismatches in LeetCode API responses.
+          verbose: false
           commit-header: "[LeetCode Sync]"
