@@ -14,13 +14,69 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate LeetCode session
+        id: leetcode-auth
+        env:
+          LEETCODE_CSRF_TOKEN: ${{ secrets.LEETCODE_CSRF_TOKEN }}
+          LEETCODE_SESSION: ${{ secrets.LEETCODE_SESSION }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          payload = {
+              "query": """query ($offset: Int!, $limit: Int!, $slug: String) {
+                submissionList(offset: $offset, limit: $limit, questionSlug: $slug) {
+                  submissions { id }
+                }
+              }""",
+              "variables": {"offset": 0, "limit": 1, "slug": None},
+          }
+
+          headers = {
+              "content-type": "application/json",
+              "origin": "https://leetcode.com",
+              "referer": "https://leetcode.com",
+              "cookie": f"csrftoken={os.environ.get('LEETCODE_CSRF_TOKEN', '')}; LEETCODE_SESSION={os.environ.get('LEETCODE_SESSION', '')};",
+              "x-csrftoken": os.environ.get("LEETCODE_CSRF_TOKEN", ""),
+          }
+
+          valid = False
+          try:
+              req = urllib.request.Request(
+                  "https://leetcode.com/graphql/",
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers=headers,
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  response_data = json.loads(resp.read().decode("utf-8"))
+              submissions = (
+                  response_data.get("data", {})
+                  .get("submissionList", {})
+                  .get("submissions")
+              )
+              valid = isinstance(submissions, list)
+          except Exception:
+              valid = False
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"valid={'true' if valid else 'false'}\n")
+          PY
+
       - name: Sync
+        if: steps.leetcode-auth.outputs.valid == 'true'
         uses: joshcai/leetcode-sync@v1.7
         with:
           github-token: ${{ github.token }}
           leetcode-csrf-token: ${{ secrets.LEETCODE_CSRF_TOKEN }}
           leetcode-session: ${{ secrets.LEETCODE_SESSION }}
           destination-folder: my-folder
-          # Keep verbose mode off to avoid submissionList shape mismatches in LeetCode API responses.
           verbose: false
           commit-header: "[LeetCode Sync]"
+
+      - name: Skip sync when LeetCode auth is invalid
+        if: steps.leetcode-auth.outputs.valid != 'true'
+        run: |
+          echo "::warning::Skipping LeetCode sync because the LeetCode submissions response was invalid. Refresh LEETCODE_SESSION and LEETCODE_CSRF_TOKEN secrets."
